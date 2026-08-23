@@ -15,17 +15,13 @@ func CompactSmall(dir string, segs []model.SegmentInfo, live func(model.Entity) 
 	var ids []uint64
 	var bytes int64
 	var minTS, maxTS int64
-	var readErr error
 	for _, s := range segs {
 		if s.FilePath == "" {
 			continue
 		}
 		_, ents, _, err := ReadFile(s.FilePath)
 		if err != nil {
-			if readErr == nil {
-				readErr = err
-			}
-			continue
+			return model.SegmentInfo{}, nil, fmt.Errorf("compact: read segment %s: %w", s.FilePath, err)
 		}
 		for _, e := range ents {
 			if e.Deleted || (live != nil && !live(e)) {
@@ -43,9 +39,6 @@ func CompactSmall(dir string, segs []model.SegmentInfo, live func(model.Entity) 
 		}
 	}
 	if len(merged) == 0 {
-		if readErr != nil {
-			return model.SegmentInfo{}, nil, readErr
-		}
 		return model.SegmentInfo{}, nil, fmt.Errorf("nothing to compact")
 	}
 	path := filepath.Join(dir, fmt.Sprintf("seg_%d.bin", newID))
