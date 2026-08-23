@@ -54,7 +54,10 @@ func Run(ctx context.Context, eng *engine.Engine, q Query) (<-chan provider.Toke
 	if eng.LLM.Kind() != "mock" {
 		est = 0.02
 	}
-	defer clear(ctxs)
+	// NOTE: 不要 clear(ctxs)。Stream 返回的 channel 由后台 goroutine
+	// 消费，延迟组装 prompt 的流式适配器会在 Run 返回之后才读取
+	// contexts。ctxs 与该 goroutine 共享底层数组，若在此 clear 会把
+	// 所有片段正文清空为 ""，导致模型只看到正确数量但内容为空的片段。
 	ch := eng.LLM.Stream(ctx, q.Question, ctxs)
 	return ch, ResultMeta{Mock: eng.LLM.Kind() == "mock", Model: eng.LLM.Name(), Citations: cites, Estimate: est}, nil
 }
