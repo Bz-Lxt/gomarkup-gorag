@@ -123,15 +123,23 @@ func (o *OpenAILLM) Stream(ctx context.Context, question string, contexts []stri
 				{"role": "user", "content": question},
 			},
 		})
+		// Derive the request context from the original ctx so that trace
+		// spans, baggage, and other context values propagate to the upstream
+		// HTTP call.  Using context.Background() here would detach the
+		// request from the parent trace, orphaning the /chat/completions
+		// span whenever the gateway supplies a deadline.
+		//
+		// context.WithDeadline(ctx, deadline) preserves the parent-child
+		// link (so cancellation and the parent's deadline still apply) while
+		// also carrying forward context values used by tracing and baggage.
+		// This is functionally equivalent to the previous
+		// Background()+AfterFunc pattern for cancellation/deadline semantics,
+		// but additionally keeps tracing and baggage intact.
 		requestCtx := ctx
 		if deadline, ok := ctx.Deadline(); ok {
 			var cancel context.CancelFunc
-			requestCtx, cancel = context.WithDeadline(context.Background(), deadline)
-			stop := context.AfterFunc(ctx, cancel)
-			defer func() {
-				stop()
-				cancel()
-			}()
+			requestCtx, cancel = context.WithDeadline(ctx, deadline)
+			defer cancel()
 		}
 		req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, o.base+"/chat/completions", bytes.NewReader(body))
 		if err != nil {
