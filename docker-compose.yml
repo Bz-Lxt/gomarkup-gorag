@@ -1,0 +1,80 @@
+# Dev compose — random high ports (avoid 1848x collision band).
+# Deployer will rewrite to 8081 / 8082 at /deploy.
+services:
+  gorag-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: gorag-backend:dev
+    environment:
+      - TZ=Asia/Shanghai
+      - HTTP_ADDR=:8080
+      - DATA_DIR=/data
+      - LOG_LEVEL=info
+      - LOG_ENV=production
+      - SEGMENT_MAX_BYTES=4194304
+      - SEGMENT_MAX_ROWS=1000
+      - SEGMENT_MAX_IDLE_SEC=30
+      - HNSW_M=16
+      - HNSW_EF_CONSTRUCTION=200
+      - HNSW_EF_SEARCH=64
+      - PATCH_GRID=3
+      - BUDGET_LIMIT_CNY=10.00
+      - EMBEDDING_PROVIDER=local
+      - VISION_PROVIDER=local
+      - LLM_PROVIDER=mock
+      - DEMO_USER=admin
+      - DEMO_PASS=gorag123
+      - GOPROXY=https://goproxy.cn,direct
+    volumes:
+      - gorag-data:/data
+    ports:
+      - "19282:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+
+  gorag-frontend:
+    build:
+      context: ./frontend-user
+      dockerfile: Dockerfile
+    image: gorag-frontend:dev
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "19281:80"
+    depends_on:
+      gorag-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 8
+      start_period: 8s
+    restart: unless-stopped
+
+  gorag-qa:
+    build:
+      context: ./tests
+      dockerfile: Dockerfile
+    image: gorag-qa:dev
+    environment:
+      - TZ=Asia/Shanghai
+      - API_URL=http://gorag-backend:8080
+      - PYTHONIOENCODING=utf-8
+      - DEMO_USER=admin
+      - DEMO_PASS=gorag123
+    volumes:
+      - ./tests:/tests:ro
+    depends_on:
+      gorag-backend:
+        condition: service_healthy
+    profiles: ["qa"]
+
+volumes:
+  gorag-data:
