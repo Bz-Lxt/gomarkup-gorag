@@ -123,12 +123,14 @@ func (o *OpenAILLM) Stream(ctx context.Context, question string, contexts []stri
 				{"role": "user", "content": question},
 			},
 		})
-		requestCtx, cancelRequest := context.WithCancel(context.Background())
-		stopCancel := context.AfterFunc(ctx, cancelRequest)
-		defer func() {
-			stopCancel()
-			cancelRequest()
-		}()
+		// Derive the request context from the caller's ctx so that
+		// context values — notably httptrace.ClientTrace attached by
+		// tracing middleware — propagate into the outbound HTTP request.
+		// WithCancel preserves the existing cancellation semantics: when
+		// the caller cancels (or the deadline expires), the request and
+		// any in-flight body reads are aborted, terminating the stream.
+		requestCtx, cancelRequest := context.WithCancel(ctx)
+		defer cancelRequest()
 		req, err := http.NewRequestWithContext(requestCtx, http.MethodPost, o.base+"/chat/completions", bytes.NewReader(body))
 		if err != nil {
 			ch <- Token{Err: err, Done: true}
