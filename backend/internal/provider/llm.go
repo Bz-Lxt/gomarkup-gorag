@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -84,10 +83,6 @@ type OpenAILLM struct {
 	model  string
 	client *http.Client
 	ledger *cost.Ledger
-
-	streamMu     sync.Mutex
-	streamSeq    uint64
-	streamCancel context.CancelFunc
 }
 
 func NewLLM(cfg *config.Config, ledger *cost.Ledger) LLM {
@@ -108,27 +103,11 @@ func (o *OpenAILLM) Kind() string { return "openai" }
 
 func (o *OpenAILLM) Stream(ctx context.Context, question string, contexts []string) <-chan Token {
 	streamCtx, cancel := context.WithCancel(ctx)
-	o.streamMu.Lock()
-	o.streamSeq++
-	streamSeq := o.streamSeq
-	previousCancel := o.streamCancel
-	o.streamCancel = cancel
-	o.streamMu.Unlock()
-	if previousCancel != nil {
-		previousCancel()
-	}
 
 	ch := make(chan Token, 16)
 	go func() {
 		defer close(ch)
-		defer func() {
-			cancel()
-			o.streamMu.Lock()
-			if o.streamSeq == streamSeq {
-				o.streamCancel = nil
-			}
-			o.streamMu.Unlock()
-		}()
+		defer cancel()
 		if err := o.ledger.Allow(0.02); err != nil {
 			for tok := range (MockLLM{}).Stream(streamCtx, question, contexts) {
 				ch <- tok
