@@ -191,20 +191,20 @@ func (e *Engine) CreateCollection(c model.Collection) error {
 		c.IndexType = model.IndexHNSW
 	}
 	c.CreatedAt = timeutil.NowNaive()
+	// Hold the lock across the entire check-append-insert sequence so that
+	// concurrent creates of the SAME name serialize: the first wins (201),
+	// every follower observes the inserted entry and gets a 409. Different
+	// names still both succeed — they merely pass through the critical
+	// section one after another, same as every other write path here.
 	e.mu.Lock()
+	defer e.mu.Unlock()
 	if _, ok := e.cols[c.Name]; ok {
-		e.mu.Unlock()
 		return model.NewError(model.CodeConflict, "collection exists")
 	}
-	e.mu.Unlock()
-
 	payload, _ := gobEncode(c)
 	if err := e.WAL.Append(wal.RecCollection, payload); err != nil {
 		return err
 	}
-
-	e.mu.Lock()
-	defer e.mu.Unlock()
 	e.cols[c.Name] = &c
 	e.Man.Collections = append(e.Man.Collections, c)
 	return e.Man.Save()
