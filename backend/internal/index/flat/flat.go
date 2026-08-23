@@ -46,15 +46,18 @@ func (idx *Index) Insert(id uint64, vec []float32) error {
 	if err := metric.ValidateDim(vec, idx.dim); err != nil {
 		return err
 	}
+	// 防御性拷贝：避免调用方复用底层缓冲区时，旧记录被新写入覆盖，
+	// 导致 CompareFLAT 与正常索引结果漂移、对照排名随新请求变化。
+	cp := append([]float32(nil), vec...)
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	if pos, ok := idx.byID[id]; ok {
-		idx.items[pos].vec = vec
+		idx.items[pos].vec = cp
 		idx.items[pos].deleted = false
 		return nil
 	}
 	idx.byID[id] = len(idx.items)
-	idx.items = append(idx.items, record{id: id, vec: vec})
+	idx.items = append(idx.items, record{id: id, vec: cp})
 	return nil
 }
 
