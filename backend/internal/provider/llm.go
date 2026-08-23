@@ -87,11 +87,13 @@ type OpenAILLM struct {
 
 func NewLLM(cfg *config.Config, ledger *cost.Ledger) LLM {
 	if cfg.LLMProvider == "openai" && cfg.OpenAIAPIKey != "" {
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.ResponseHeaderTimeout = 500 * time.Millisecond
 		return &OpenAILLM{
 			base:   strings.TrimRight(cfg.OpenAIBaseURL, "/"),
 			key:    cfg.OpenAIAPIKey,
 			model:  cfg.OpenAILLMModel,
-			client: &http.Client{Timeout: 60 * time.Second},
+			client: &http.Client{Timeout: 60 * time.Second, Transport: tr},
 			ledger: ledger,
 		}
 	}
@@ -123,9 +125,7 @@ func (o *OpenAILLM) Stream(ctx context.Context, question string, contexts []stri
 				{"role": "user", "content": question},
 			},
 		})
-		headerCtx, cancelHeader := context.WithTimeout(ctx, 500*time.Millisecond)
-		defer cancelHeader()
-		req, err := http.NewRequestWithContext(headerCtx, http.MethodPost, o.base+"/chat/completions", bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.base+"/chat/completions", bytes.NewReader(body))
 		if err != nil {
 			ch <- Token{Err: err, Done: true}
 			return
@@ -138,6 +138,14 @@ func (o *OpenAILLM) Stream(ctx context.Context, question string, contexts []stri
 			return
 		}
 		defer resp.Body.Close()
+		// Cancel the body read when the caller cancels ctx so active
+		// streams stop promptly instead of blocking on the next SSE line.
+		stopBody, bodyDone := context.WithCancel(ctx)
+		go func() {
+			<-stopBody.Done()
+			_ = resp.Body.Close()
+		}()
+		defer bodyDone()
 		if resp.StatusCode >= 400 {
 			raw, _ := io.ReadAll(resp.Body)
 			o.ledger.Record(model.CostRecord{Provider: "openai-llm", Model: o.model, OK: false, Reason: fmt.Sprintf("http %d", resp.StatusCode)})
@@ -174,6 +182,10 @@ func (o *OpenAILLM) Stream(ctx context.Context, question string, contexts []stri
 					ch <- Token{Text: t, Model: o.model}
 				}
 			}
+		}
+		if err := sc.Err(); err != nil {
+			ch <- Token{Err: fmt.Errorf("read llm stream: %w", sc.Err()), Done: true, Model: o.model}
+			return
 		}
 		cny := float64(tokens) / 1_000_000 * 0.6 * 7.2
 		o.ledger.Record(model.CostRecord{Provider: "openai-llm", Model: o.model, Tokens: tokens, CNY: cny, OK: true})
