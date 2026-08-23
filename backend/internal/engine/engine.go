@@ -196,14 +196,36 @@ func (e *Engine) CreateCollection(c model.Collection) error {
 	if _, ok := e.cols[c.Name]; ok {
 		return model.NewError(model.CodeConflict, "collection exists")
 	}
+	// Durably append to the WAL BEFORE touching any in-memory state.
+	//
+	// Recovery on restart replays the WAL (not the manifest) to rebuild
+	// the collection map, so the WAL record is the source of truth. If
+	// the storage layer is temporarily unwritable the caller MUST see
+	// the error — otherwise the collection would be visible in-memory
+	// (and in ListCollections) but vanish after the next restart, i.e.
+	// a "false success".
+	payload, err := gobEncode(c)
+	if err != nil {
+		return model.Wrap(model.CodeInternal, "encode collection", err)
+	}
+	if err := e.WAL.Append(wal.RecCollection, payload); err != nil {
+		logger.Warn("engine.collection_create_wal_fail", "name", c.Name, "err", err)
+		return model.Wrap(model.CodeInternal, "persist collection (wal)", err)
+	}
+	// WAL record is durable — now make the collection visible in-memory.
 	e.cols[c.Name] = &c
 	e.Man.Collections = append(e.Man.Collections, c)
-	payload, _ := gobEncode(c)
-	if err := e.WAL.Append(wal.RecCollection, payload); err != nil {
-		err := e.Man.Save()
-		return err
+	if err := e.Man.Save(); err != nil {
+		// Manifest save failed: roll back in-memory state so the
+		// collection is not listed. The WAL record remains and the
+		// collection will still be recovered on restart; the caller
+		// received an error and may retry (possibly hitting a conflict).
+		logger.Warn("engine.collection_create_manifest_fail", "name", c.Name, "err", err)
+		delete(e.cols, c.Name)
+		e.Man.Collections = e.Man.Collections[:len(e.Man.Collections)-1]
+		return model.Wrap(model.CodeInternal, "persist collection (manifest)", err)
 	}
-	return e.Man.Save()
+	return nil
 }
 
 func (e *Engine) ListCollections() []model.Collection {
