@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/xavskye/gorag/internal/model"
@@ -29,9 +30,10 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	code := model.CodeInternal
 	msg := "internal error"
 	httpStatus := http.StatusInternalServerError
-	if e, ok := err.(*model.Error); ok {
-		code = e.Code
-		msg = e.Message
+	var me *model.Error
+	if errors.As(err, &me) {
+		code = me.Code
+		msg = me.Message
 		switch {
 		case code == model.CodeUnauthorized:
 			httpStatus = http.StatusUnauthorized
@@ -47,7 +49,9 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	} else if err != nil {
 		msg = err.Error()
 	}
-	logger.Warn("api.error", "code", code, "msg", msg, "path", r.URL.Path)
+	// Log the full error string (including wrapping context) so operation
+	// context like "delete collection: collection not found" is preserved.
+	logger.Warn("api.error", "code", code, "msg", msg, "err", err, "path", r.URL.Path)
 	write(w, r, httpStatus, Envelope{Code: code, Message: msg})
 }
 
