@@ -74,7 +74,14 @@ func (m *Manager) Flush(reason string) error {
 	}
 	m.buf.Reset(m.nextID())
 	start := timeutil.Now()
+	// Register with the WaitGroup synchronously, before launching the
+	// goroutine, so that Close's wg.Wait cannot observe a zero counter and
+	// return while a persist is still in flight. Done is deferred at the top
+	// of the goroutine so every path (including buildAndPersist failures)
+	// decrements the counter.
+	m.wg.Add(1)
 	go func() {
+		defer m.wg.Done()
 		info := model.SegmentInfo{
 			ID: id, State: model.SegSealed, RowCount: len(ents), ByteSize: bytes,
 			IndexType: m.indexTyp, MinTS: minTS, MaxTS: maxTS,
@@ -84,8 +91,6 @@ func (m *Manager) Flush(reason string) error {
 			logger.Error("segment.persist_fail", "id", id, "err", err)
 			return
 		}
-		m.wg.Add(1)
-		defer m.wg.Done()
 		info.State = model.SegPersisted
 		m.mu.Lock()
 		m.sealed = append(m.sealed, info)
