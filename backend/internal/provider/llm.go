@@ -150,6 +150,7 @@ func (o *OpenAILLM) Stream(ctx context.Context, question string, contexts []stri
 		}
 		sc := bufio.NewScanner(resp.Body)
 		tokens := 0
+		done := false
 		for sc.Scan() {
 			line := sc.Text()
 			if !strings.HasPrefix(line, "data:") {
@@ -157,6 +158,7 @@ func (o *OpenAILLM) Stream(ctx context.Context, question string, contexts []stri
 			}
 			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 			if payload == "[DONE]" {
+				done = true
 				break
 			}
 			var ev struct {
@@ -175,9 +177,13 @@ func (o *OpenAILLM) Stream(ctx context.Context, question string, contexts []stri
 		}
 		cny := float64(tokens) / 1_000_000 * 0.6 * 7.2
 		o.ledger.Record(model.CostRecord{Provider: "openai-llm", Model: o.model, Tokens: tokens, CNY: cny, OK: true})
-		var streamErr *model.Error
-		if err := sc.Err(); err != nil {
-			streamErr = model.Wrap(model.CodeProvider, "read openai stream", err)
+		// Once [DONE] was received the stream completed successfully; ignore
+		// any trailing read error (e.g. unexpected EOF from the upstream
+		// closing the connection after [DONE]). Use a plain error (not a
+		// *model.Error pointer) so a nil value stays a nil interface.
+		var streamErr error
+		if !done && sc.Err() != nil {
+			streamErr = model.Wrap(model.CodeProvider, "read openai stream", sc.Err())
 		}
 		ch <- Token{Err: streamErr, Done: true, Model: o.model}
 	}()
