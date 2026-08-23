@@ -191,16 +191,13 @@ func (e *Engine) CreateCollection(c model.Collection) error {
 		c.IndexType = model.IndexHNSW
 	}
 	c.CreatedAt = timeutil.NowNaive()
-	e.mu.RLock()
-	_, exists := e.cols[c.Name]
-	e.mu.RUnlock()
-	if exists {
-		return model.NewError(model.CodeConflict, "collection exists")
-	}
 	payload, _ := gobEncode(c)
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if _, exists := e.cols[c.Name]; exists {
+		return model.NewError(model.CodeConflict, "collection exists")
+	}
 	e.cols[c.Name] = &c
 	e.Man.Collections = append(e.Man.Collections, c)
 	if err := e.WAL.Append(wal.RecCollection, payload); err != nil {
