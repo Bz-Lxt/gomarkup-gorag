@@ -1,0 +1,44 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/backend/bin/
+/backend/server
+/tmp/
+
+# Go
+backend/vendor/
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Node
+node_modules/
+frontend-user/dist/
+frontend-user/.vite/
+npm-debug.log*
+
+# Data & secrets
+/data/
+.env
+.env.local
+*.pem
+credentials.json
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Test artifacts
+tests/playwright-report/
+tests/test-results/
+.pytest_cache/
+__pycache__/
+
+# SOP lock & generated docs stay in repo during build;
+# Deployer will append .alkaid-sop and docs/ at hand-off.
