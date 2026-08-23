@@ -23,8 +23,8 @@ type CLIP interface {
 
 type disabledCLIP struct{}
 
-func (disabledCLIP) Enabled() bool                      { return false }
-func (disabledCLIP) Name() string                       { return "off" }
+func (disabledCLIP) Enabled() bool { return false }
+func (disabledCLIP) Name() string  { return "off" }
 func (disabledCLIP) EmbedText(string) ([]float32, error) {
 	return nil, model.NewError(model.CodeUnimplemented, "clip not configured")
 }
@@ -45,8 +45,12 @@ func NewCLIP(cfg *config.Config, ledger *cost.Ledger) CLIP {
 			ledger: ledger,
 		}
 	}
-	var clip *HTTPCLIP
-	return clip
+	// Return disabledCLIP{} instead of a nil *HTTPCLIP: a nil typed pointer
+	// stored in the CLIP interface still has a non-nil type descriptor, so
+	// Enabled() would dispatch to (*HTTPCLIP).Enabled() which unconditionally
+	// returns true, making the engine believe CLIP is configured. Subsequent
+	// EmbedText calls then dereference nil fields (ledger) and panic.
+	return disabledCLIP{}
 }
 
 func (c *HTTPCLIP) Enabled() bool { return true }
