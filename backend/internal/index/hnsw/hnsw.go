@@ -90,7 +90,7 @@ func (idx *Index) Len() int {
 	defer idx.mu.RUnlock()
 	n := 0
 	for _, nd := range idx.nodes {
-		if !nd.deleted {
+		if nd != nil && !nd.deleted {
 			n++
 		}
 	}
@@ -170,11 +170,11 @@ func (idx *Index) Insert(id uint64, vec []float32) error {
 func (idx *Index) Delete(id uint64) bool {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
-	_, ok := idx.nodes[id]
-	if !ok {
+	nd, ok := idx.nodes[id]
+	if !ok || nd == nil || nd.deleted {
 		return false
 	}
-	idx.nodes[id] = nil
+	nd.deleted = true
 	return true
 }
 
