@@ -1,0 +1,17 @@
+.git
+.idea
+.vscode
+**/.DS_Store
+**/node_modules
+frontend-user/dist
+frontend-user/.vite
+backend/bin
+backend/vendor
+data
+tmp
+tests/playwright-report
+tests/test-results
+coverage.out
+*.md
+docs
+.alkaid-sop
